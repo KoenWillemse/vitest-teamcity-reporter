@@ -7,6 +7,14 @@ import MissingResultError from './error/missing-result.error'
 type PotentialMessage = string | (() => string | string[])
 type PotentialMessages = PotentialMessage[]
 
+interface TestRunSummary {
+  failedSuitesCount: number
+  totalSuitesCount: number
+  failedTestsCount: number
+  totalTestsCount: number
+  suiteErrors: Array<{ file: string, error: string }>
+}
+
 export class Printer {
   private readonly fileMessageMap = new Map<string, PotentialMessages>()
   private readonly testConsoleMap = new Map<string, UserConsoleLog[]>()
@@ -84,9 +92,77 @@ export class Printer {
     }
   }
 
+  toArray<T>(array?: Nullable<Arrayable<T>>): T[] {
+    if (array === null || array === undefined) {
+      array = []
+    }
+
+    if (Array.isArray(array)) {
+      return array
+    }
+
+    return [array]
+  }
+
+  getSuites(suites) {
+    return this.toArray(suites).flatMap(s => s.type === 'suite' ? [s, ...this.getSuites(s.tasks)] : [])
+  }
+
+  isAtomTest(s) {
+    return s.type === 'test' || s.type === 'custom'
+  }
+
+  getTests(files) {
+    const tests = []
+    const arraySuites = this.toArray(files);
+    for (const s of arraySuites) {
+      if (this.isAtomTest(s)) {
+        tests.push(s);
+      }
+      else {
+        for (const task of s.tasks) {
+          if (this.isAtomTest(task)) {
+            tests.push(task);
+          }
+          else {
+            tests.push(...this.getTests(task));
+          }
+        }
+      }
+    }
+    return tests
+  }
+
   private readonly getTestErrors = (test: Test): ErrorWithDiff[] =>
     test.result?.errors ??
-      test.suite.result?.errors ??
-      test.file?.result?.errors ??
-      [new MissingResultError(test)]
+    test.suite.result?.errors ??
+    test.file?.result?.errors ??
+    [new MissingResultError(test)]
+
+  public writeSummary = (): void => {
+    const suites = this.getSuites(files)
+    const tests = this.getTests(files)
+
+    const failedSuites = suites.filter(i => i.result?.errors)
+    const failedTests = tests.filter(i => i.result?.state === 'fail')
+    const summary: TestRunSummary = {
+      failedSuitesCount: failedSuites.length,
+      totalSuitesCount: suites.length,
+      failedTestsCount: failedTests.length,
+      totalTestsCount: tests.length,
+      suiteErrors: []
+    }
+    if (failedSuites.length > 0) {
+      for (const suite of failedSuites) {
+        for (const error of (suite.result?.errors || [])) {
+          summary.suiteErrors.push({
+            file: suite.name,
+            error: error.stack
+          })
+        }
+      }
+    }
+
+    this.printer.writeSummary(summary)
+  }
 }

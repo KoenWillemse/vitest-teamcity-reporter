@@ -4,8 +4,10 @@ import { Printer } from './printer'
 class TeamCityReporter implements Reporter {
   private logger!: Vitest['logger']
   private printer!: Printer
+  private ctx!: Vitest
 
   onInit(ctx: Vitest): void {
+    this.ctx = ctx
     this.logger = ctx.logger
     this.printer = new Printer(this.logger)
   }
@@ -30,6 +32,10 @@ class TeamCityReporter implements Reporter {
     } else {
       this.logger.console.log(log)
     }
+    return Promise.resolve()
+  }
+
+  onFinished(files = this.ctx.state.getFiles(), errors = this.ctx.state.getUnhandledErrors()): Awaitable<void> {
     return Promise.resolve()
   }
 }
